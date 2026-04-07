@@ -558,9 +558,9 @@ def draw_weather_emoji(draw: ImageDraw.ImageDraw, x: int, y: int,
         else:
             # 絵文字ごとの色
             if "☀" in tok:
-                emoji_color = (255, 220, 180)
+                emoji_color = (255, 150, 100)
             elif "☂" in tok:
-                emoji_color = (180, 220, 255)
+                emoji_color = (120, 180, 255)
             else:
                 emoji_color = (255, 255, 255)
             prev = tokens[i - 1] if i > 0 else ""
