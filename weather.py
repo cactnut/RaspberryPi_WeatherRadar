@@ -556,17 +556,24 @@ def draw_weather_emoji(draw: ImageDraw.ImageDraw, x: int, y: int,
             bbox = font_small.getbbox("/")
             cur_x += (bbox[2] - bbox[0]) + 1
         else:
+            # 絵文字ごとの色
+            if "☀" in tok:
+                emoji_color = (255, 220, 180)
+            elif "☂" in tok:
+                emoji_color = (180, 220, 255)
+            else:
+                emoji_color = (255, 255, 255)
             prev = tokens[i - 1] if i > 0 else ""
             if prev == "/":
                 small_y = y + font_large.size - font_small.size - 2
                 font_mid = get_font(11)
                 draw.text((cur_x, small_y), tok,
-                          fill=(255, 255, 255), font=font_mid)
+                          fill=emoji_color, font=font_mid)
                 bbox = font_mid.getbbox(tok)
                 cur_x += (bbox[2] - bbox[0]) + 1
             else:
                 draw.text((cur_x, y), tok,
-                          fill=(255, 255, 255), font=font_large)
+                          fill=emoji_color, font=font_large)
                 bbox = font_large.getbbox(tok)
                 cur_x += (bbox[2] - bbox[0]) + 1
 
