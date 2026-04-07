@@ -54,7 +54,7 @@ DEFAULT_TILE_Y = int((1.0 - math.log(math.tan(math.radians(DEFAULT_LAT))
 BASE_MAP_CONTRAST = 0.8
 
 # レーダー透過度 (0=完全透明, 255=不透明)
-RADAR_OPACITY = 160
+RADAR_OPACITY = 120
 
 # 県庁所在地 (name, lat, lon)
 CAPITALS = [
