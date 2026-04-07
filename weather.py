@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""大田区周辺の雨雲レーダーをMHS-3.5inch GPIO LCDにインタラクティブ表示するスクリプト
+"""雨雲レーダーをMHS-3.5inch GPIO LCDにインタラクティブ表示するスクリプト
 
 機能:
 - 現在のレーダー表示（デフォルト）
@@ -23,7 +23,7 @@ from pathlib import Path
 import numpy as np
 import requests
 from dotenv import load_dotenv
-from PIL import Image, ImageDraw, ImageEnhance, ImageFont  # noqa: F401
+from PIL import Image, ImageDraw, ImageFont  # noqa: F401
 
 load_dotenv()
 
@@ -43,18 +43,19 @@ GRID_COLS = 3
 GRID_ROWS = 2
 TILE_SIZE = 256
 
-# 大田区の緯度経度からデフォルトタイル座標を算出 (グリッド中央にマーカーが来るようオフセット)
+# デフォ位置の緯度経度からデフォルトタイル座標を算出 (グリッド中央にマーカーが来るようオフセット)
 _n = 2 ** DEFAULT_ZOOM
 DEFAULT_TILE_X = int((DEFAULT_LON + 180.0) / 360.0 * _n) - GRID_COLS // 2
 DEFAULT_TILE_Y = int((1.0 - math.log(math.tan(math.radians(DEFAULT_LAT))
                       + 1.0 / math.cos(math.radians(DEFAULT_LAT)))
                       / math.pi) / 2.0 * _n) - GRID_ROWS // 2 + 1
 
-# 背景地図コントラスト 下げたほうが見やすい
-BASE_MAP_CONTRAST = 0.8
+# 背景地図ガンマ補正 (陸地の輝度範囲はそのまま、それ以外を明るくする)
+BASE_MAP_GAMMA = 0.4
+BASE_MAP_LAND_RANGE = (0, 14)  # この輝度範囲を陸地とみなし変更しない
 
 # レーダー透過度 (0=完全透明, 255=不透明)
-RADAR_OPACITY = 120
+RADAR_OPACITY = 80
 
 # 県庁所在地 (name, lat, lon)
 CAPITALS = [
@@ -620,8 +621,13 @@ def compose_map(base: Image.Image, radar: Image.Image,
     # アスペクト比維持: 768x512 → 480x320 → 中央クロップ 480x240
     result = result.resize((DISPLAY_WIDTH, DISPLAY_HEIGHT), Image.LANCZOS)
     result = result.crop((0, CROP_Y_OFFSET, DISPLAY_WIDTH, CROP_Y_OFFSET + MAP_HEIGHT))
-    # コントラスト強化 (陸と海の区別を明確に)
-    result = ImageEnhance.Contrast(result.convert("RGB")).enhance(BASE_MAP_CONTRAST)
+    # 陸地の輝度範囲はそのまま、それ以外はガンマ補正で明るくする
+    lo, hi = BASE_MAP_LAND_RANGE
+    g = BASE_MAP_GAMMA
+    lut = [i if lo <= i <= hi
+           else int(255 * (i / 255) ** g)
+           for i in range(256)]
+    result = result.convert("RGB").point(lut * 3)
 
     draw = ImageDraw.Draw(result)
 
@@ -637,7 +643,7 @@ def compose_map(base: Image.Image, radar: Image.Image,
             draw.text((px + 4, py - 5), name,
                       fill=(160, 160, 160), font=font_city)
 
-    # 大田区マーカー (十字、県庁所在地より上に描画)
+    # デフォルト位置のマーカー (十字、県庁所在地より上に描画)
     pos = latlon_to_screen(DEFAULT_LAT, DEFAULT_LON,
                            base_zoom, base_tx, base_ty)
     if pos:
