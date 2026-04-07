@@ -123,6 +123,11 @@ CACHE_DIR = Path.home() / ".cache" / "weather_radar"
 USER_AGENT = "RaspberryPi-WeatherRadar/1.0 (educational project)"
 SESSION = requests.Session()
 SESSION.headers.update({"User-Agent": USER_AGENT})
+# コネクションプール拡大 (並列タイル取得用)
+adapter = requests.adapters.HTTPAdapter(
+    pool_connections=4, pool_maxsize=12, max_retries=1)
+SESSION.mount("https://", adapter)
+SESSION.mount("http://", adapter)
 
 JST = timezone(timedelta(hours=9))
 WEEKDAY_JP = ["月", "火", "水", "木", "金", "土", "日"]
@@ -246,7 +251,7 @@ def fetch_tile(url: str, cache_path: Path | None = None) -> Image.Image:
     if cache_path and cache_path.exists():
         return Image.open(cache_path).convert("RGBA")
 
-    resp = SESSION.get(url, timeout=15)
+    resp = SESSION.get(url, timeout=(3, 10))
     resp.raise_for_status()
     img = Image.open(io.BytesIO(resp.content)).convert("RGBA")
 
