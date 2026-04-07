@@ -51,7 +51,7 @@ DEFAULT_TILE_Y = int((1.0 - math.log(math.tan(math.radians(DEFAULT_LAT))
                       / math.pi) / 2.0 * _n) - GRID_ROWS // 2 + 1
 
 # 背景地図コントラスト強化
-BASE_MAP_CONTRAST = 1.6
+BASE_MAP_CONTRAST = 0.8
 
 # 県庁所在地 (name, lat, lon)
 CAPITALS = [
@@ -605,14 +605,15 @@ def _fit_radar_to_base(base: Image.Image, radar: Image.Image,
     return Image.alpha_composite(base, radar_aligned)
 
 
-def compose_map(base: Image.Image, radar: Image.Image, state: AppState,
+def compose_map(base: Image.Image, radar: Image.Image,
+                base_zoom: int, base_tx: int, base_ty: int,
                 radar_zoom_level: int = 0, radar_tx: int = 0, radar_ty: int = 0,
                 validtime: str = "", is_forecast: bool = False,
                 frame_idx: int = 0, total_frames: int = 1) -> Image.Image:
     """背景地図 + レーダーを合成して480x240マップ画像を返す。"""
-    if radar_zoom_level and radar_zoom_level != state.zoom:
+    if radar_zoom_level and radar_zoom_level != base_zoom:
         result = _fit_radar_to_base(base, radar,
-                                    state.zoom, state.tile_x_start, state.tile_y_start,
+                                    base_zoom, base_tx, base_ty,
                                     radar_zoom_level, radar_tx, radar_ty)
     else:
         result = Image.alpha_composite(base, radar)
@@ -628,7 +629,7 @@ def compose_map(base: Image.Image, radar: Image.Image, state: AppState,
     font_city = get_font(9)
     for name, lat, lon in CAPITALS:
         pos = latlon_to_screen(lat, lon,
-                               state.zoom, state.tile_x_start, state.tile_y_start)
+                               base_zoom, base_tx, base_ty)
         if pos:
             px, py = int(pos[0]), int(pos[1])
             draw.ellipse((px - 2, py - 2, px + 2, py + 2),
@@ -638,7 +639,7 @@ def compose_map(base: Image.Image, radar: Image.Image, state: AppState,
 
     # 大田区マーカー (十字、県庁所在地より上に描画)
     pos = latlon_to_screen(DEFAULT_LAT, DEFAULT_LON,
-                           state.zoom, state.tile_x_start, state.tile_y_start)
+                           base_zoom, base_tx, base_ty)
     if pos:
         cx, cy = int(pos[0]), int(pos[1])
         draw.line((cx - 5, cy, cx + 5, cy), fill=(255, 0, 0), width=2)
@@ -1091,16 +1092,19 @@ def main():
 
     # 初期データ取得
     log.info("背景地図を取得中...")
+    snap_zoom = state.zoom
+    snap_tx = state.tile_x_start
+    snap_ty = state.tile_y_start
     base_map = fetch_tile_grid(
-        BASE_TILE_URL, state.zoom, state.tile_x_start, state.tile_y_start,
-        cache_subdir=f"base_dark_{state.zoom}")
+        BASE_TILE_URL, snap_zoom, snap_tx, snap_ty,
+        cache_subdir=f"base_dark_{snap_zoom}")
     log.info("背景地図取得完了")
 
     log.info("最新レーダーを取得中...")
     current_meta = get_current_radar_time()
     current_radar = None
-    rz = radar_zoom(state.zoom)
-    rtx, rty = zoom_to(rz, state.zoom, state.tile_x_start, state.tile_y_start) if rz != state.zoom else (state.tile_x_start, state.tile_y_start)
+    rz = radar_zoom(snap_zoom)
+    rtx, rty = zoom_to(rz, snap_zoom, snap_tx, snap_ty) if rz != snap_zoom else (snap_tx, snap_ty)
     if current_meta:
         current_radar = fetch_tile_grid(
             JMA_TILE_URL, rz, rtx, rty,
@@ -1143,6 +1147,10 @@ def main():
                 swipe_oy = state.swipe_offset_y
                 state.swipe_offset_x = 0
                 state.swipe_offset_y = 0
+                if needs_refetch:
+                    snap_zoom = state.zoom
+                    snap_tx = state.tile_x_start
+                    snap_ty = state.tile_y_start
 
             if needs_refetch:
                 cached_bottom = None  # キャッシュクリア
@@ -1157,22 +1165,21 @@ def main():
                     shifted.paste(shifted_map, (0, 0))
                     draw_forecast_bar(shifted, forecast)
                     display_frame(shifted, fb_format, "shift")
-
                 log.info("タイル再取得中 (z=%d, x=%d, y=%d)...",
-                         state.zoom, state.tile_x_start, state.tile_y_start)
+                         snap_zoom, snap_tx, snap_ty)
                 base_map = fetch_tile_grid(
-                    BASE_TILE_URL, state.zoom,
-                    state.tile_x_start, state.tile_y_start,
-                    cache_subdir=f"base_dark_{state.zoom}")
+                    BASE_TILE_URL, snap_zoom, snap_tx, snap_ty,
+                    cache_subdir=f"base_dark_{snap_zoom}")
                 current_meta = get_current_radar_time()
-                rz = radar_zoom(state.zoom)
-                rtx, rty = zoom_to(rz, state.zoom, state.tile_x_start, state.tile_y_start) if rz != state.zoom else (state.tile_x_start, state.tile_y_start)
+                rz = radar_zoom(snap_zoom)
+                rtx, rty = zoom_to(rz, snap_zoom, snap_tx, snap_ty) if rz != snap_zoom else (snap_tx, snap_ty)
                 if current_meta:
                     current_radar = fetch_tile_grid(
                         JMA_TILE_URL, rz, rtx, rty,
                         basetime=current_meta["basetime"],
                         validtime=current_meta["validtime"])
                 radar_frames = []
+                last_map_img = None  # 再描画トリガー
                 last_fetch_time = time.time()
                 log.info("タイル再取得完了")
 
@@ -1180,8 +1187,8 @@ def main():
             if now - last_fetch_time >= DATA_REFRESH_INTERVAL:
                 log.info("定期データ更新中...")
                 current_meta = get_current_radar_time()
-                rz = radar_zoom(state.zoom)
-                rtx, rty = zoom_to(rz, state.zoom, state.tile_x_start, state.tile_y_start) if rz != state.zoom else (state.tile_x_start, state.tile_y_start)
+                rz = radar_zoom(snap_zoom)
+                rtx, rty = zoom_to(rz, snap_zoom, snap_tx, snap_ty) if rz != snap_zoom else (snap_tx, snap_ty)
                 if current_meta:
                     current_radar = fetch_tile_grid(
                         JMA_TILE_URL, rz, rtx, rty,
@@ -1190,6 +1197,7 @@ def main():
                 forecast = fetch_weekly_forecast()
                 cached_bottom = None
                 radar_frames = []
+                last_map_img = None  # 再描画トリガー
                 last_fetch_time = time.time()
                 log.info("定期データ更新完了")
 
@@ -1224,15 +1232,20 @@ def main():
 
             # ── IDLE: 現在のレーダー1枚表示 ──
             if state.mode == AppMode.IDLE:
-                empty_radar = Image.new(
-                    "RGBA", (GRID_COLS * TILE_SIZE, GRID_ROWS * TILE_SIZE))
-                radar = current_radar if current_radar else empty_radar
-                vt = current_meta["validtime"] if current_meta else ""
-                map_img = compose_map(base_map, radar, state,
-                                      rz, rtx, rty, vt, False)
-                last_map_img = map_img
-                full = build_full_frame(map_img, state, forecast)
-                display_frame(full, fb_format, "current")
+                if last_map_img is None:
+                    log.info("IDLE描画: snap=(%d,%d,%d) rz=%d rtx=%d rty=%d state=(%d,%d,%d)",
+                             snap_zoom, snap_tx, snap_ty, rz, rtx, rty,
+                             state.zoom, state.tile_x_start, state.tile_y_start)
+                    empty_radar = Image.new(
+                        "RGBA", (GRID_COLS * TILE_SIZE, GRID_ROWS * TILE_SIZE))
+                    radar = current_radar if current_radar else empty_radar
+                    vt = current_meta["validtime"] if current_meta else ""
+                    map_img = compose_map(base_map, radar,
+                                          snap_zoom, snap_tx, snap_ty,
+                                          rz, rtx, rty, vt, False)
+                    last_map_img = map_img
+                    full = build_full_frame(map_img, state, forecast)
+                    display_frame(full, fb_format, "current")
                 time.sleep(0.5)
 
             # ── PLAYING: アニメーション ──
@@ -1286,7 +1299,8 @@ def main():
                             break
 
                         map_img = compose_map(
-                            base_map, radar, state,
+                            base_map, radar,
+                            snap_zoom, snap_tx, snap_ty,
                             rz_anim, rtx_a, rty_a,
                             meta["validtime"], meta["is_forecast"],
                             i, total)
