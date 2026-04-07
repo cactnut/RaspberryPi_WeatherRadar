@@ -50,8 +50,11 @@ DEFAULT_TILE_Y = int((1.0 - math.log(math.tan(math.radians(DEFAULT_LAT))
                       + 1.0 / math.cos(math.radians(DEFAULT_LAT)))
                       / math.pi) / 2.0 * _n) - GRID_ROWS // 2 + 1
 
-# 背景地図コントラスト強化
+# 背景地図コントラスト 下げたほうが見やすい
 BASE_MAP_CONTRAST = 0.8
+
+# レーダー透過度 (0=完全透明, 255=不透明)
+RADAR_OPACITY = 160
 
 # 県庁所在地 (name, lat, lon)
 CAPITALS = [
@@ -611,6 +614,11 @@ def compose_map(base: Image.Image, radar: Image.Image,
                 validtime: str = "", is_forecast: bool = False,
                 frame_idx: int = 0, total_frames: int = 1) -> Image.Image:
     """背景地図 + レーダーを合成して480x240マップ画像を返す。"""
+    # レーダーを半透明にして背景地図が透けて見えるようにする
+    if radar.mode == "RGBA":
+        r, g, b, a = radar.split()
+        a = a.point(lambda x: x * RADAR_OPACITY // 255)
+        radar = Image.merge("RGBA", (r, g, b, a))
     if radar_zoom_level and radar_zoom_level != base_zoom:
         result = _fit_radar_to_base(base, radar,
                                     base_zoom, base_tx, base_ty,
