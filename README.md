@@ -165,6 +165,7 @@ ssh pi@<ラズパイIP>
 
 # ラズパイの~直下にファイル転送 (SSHなしでPC側から実行)
 scp weather.py pi@<ラズパイIP>:~
+scp .env pi@<ラズパイIP>:~
 ```
 
 ### Raspberry Pi で LCD 表示
