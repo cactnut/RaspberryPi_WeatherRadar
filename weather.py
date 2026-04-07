@@ -282,19 +282,6 @@ def fetch_tile_grid(url_template: str, zoom: int, tx_start: int, ty_start: int,
 
     tasks = [(col, row) for row in range(GRID_ROWS) for col in range(GRID_COLS)]
 
-    # 背景地図の初回取得はレート制限のため直列
-    if cache_subdir and cache_subdir.startswith("base"):
-        all_cached = all(
-            (CACHE_DIR / cache_subdir
-             / f"{zoom}_{tx_start + c}_{ty_start + r}.png").exists()
-            for c, r in tasks)
-        if not all_cached:
-            for col, row in tasks:
-                c, r, tile = _fetch_one(col, row)
-                composite.paste(tile, (c * TILE_SIZE, r * TILE_SIZE))
-                time.sleep(0.5)
-            return composite
-
     with ThreadPoolExecutor(max_workers=6) as pool:
         futures = [pool.submit(_fetch_one, c, r) for c, r in tasks]
         for future in as_completed(futures):
@@ -1098,30 +1085,31 @@ def main():
     t = threading.Thread(target=touch_thread, args=(state,), daemon=True)
     t.start()
 
-    # 初期データ取得
-    log.info("背景地図を取得中...")
+    # 初期データ取得 (背景地図・レーダー・天気予報を並列)
+    log.info("初期データ取得中...")
     snap_zoom = state.zoom
     snap_tx = state.tile_x_start
     snap_ty = state.tile_y_start
-    base_map = fetch_tile_grid(
-        BASE_TILE_URL, snap_zoom, snap_tx, snap_ty,
-        cache_subdir=f"base_dark_{snap_zoom}")
-    log.info("背景地図取得完了")
-
-    log.info("最新レーダーを取得中...")
     current_meta = get_current_radar_time()
     current_radar = None
     rz = radar_zoom(snap_zoom)
     rtx, rty = zoom_to(rz, snap_zoom, snap_tx, snap_ty) if rz != snap_zoom else (snap_tx, snap_ty)
-    if current_meta:
-        current_radar = fetch_tile_grid(
-            JMA_TILE_URL, rz, rtx, rty,
-            basetime=current_meta["basetime"], validtime=current_meta["validtime"])
-    log.info("レーダー取得完了 (radar zoom=%d)", rz)
-
-    log.info("天気予報を取得中...")
-    forecast = fetch_weekly_forecast()
-    log.info("天気予報取得完了")
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        base_future = pool.submit(
+            fetch_tile_grid, BASE_TILE_URL, snap_zoom, snap_tx, snap_ty,
+            cache_subdir=f"base_dark_{snap_zoom}")
+        radar_future = None
+        if current_meta:
+            radar_future = pool.submit(
+                fetch_tile_grid, JMA_TILE_URL, rz, rtx, rty,
+                basetime=current_meta["basetime"], validtime=current_meta["validtime"])
+        forecast_future = pool.submit(fetch_weekly_forecast)
+        base_map = base_future.result()
+        if radar_future:
+            current_radar = radar_future.result()
+        forecast = forecast_future.result()
+    log.info("初期データ取得完了 (radar zoom=%d)", rz)
 
     last_fetch_time = time.time()
     radar_frames: list[tuple[dict, Image.Image]] = []
@@ -1175,21 +1163,33 @@ def main():
                     display_frame(shifted, fb_format, "shift")
                 log.info("タイル再取得中 (z=%d, x=%d, y=%d)...",
                          snap_zoom, snap_tx, snap_ty)
-                base_map = fetch_tile_grid(
-                    BASE_TILE_URL, snap_zoom, snap_tx, snap_ty,
-                    cache_subdir=f"base_dark_{snap_zoom}")
-                current_meta = get_current_radar_time()
                 rz = radar_zoom(snap_zoom)
                 rtx, rty = zoom_to(rz, snap_zoom, snap_tx, snap_ty) if rz != snap_zoom else (snap_tx, snap_ty)
-                if current_meta:
-                    current_radar = fetch_tile_grid(
-                        JMA_TILE_URL, rz, rtx, rty,
-                        basetime=current_meta["basetime"],
-                        validtime=current_meta["validtime"])
+                current_meta = get_current_radar_time()
+                # 背景地図とレーダーを並列取得
+                from concurrent.futures import ThreadPoolExecutor
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    base_future = pool.submit(
+                        fetch_tile_grid, BASE_TILE_URL, snap_zoom, snap_tx, snap_ty,
+                        cache_subdir=f"base_dark_{snap_zoom}")
+                    radar_future = None
+                    if current_meta:
+                        radar_future = pool.submit(
+                            fetch_tile_grid, JMA_TILE_URL, rz, rtx, rty,
+                            basetime=current_meta["basetime"],
+                            validtime=current_meta["validtime"])
+                    base_map = base_future.result()
+                    if radar_future:
+                        current_radar = radar_future.result()
                 radar_frames = []
-                last_map_img = None  # 再描画トリガー
                 last_fetch_time = time.time()
                 log.info("タイル再取得完了")
+                # 取得中に新たな操作があった場合、古いデータで描画せず次のループで再取得
+                with state.lock:
+                    if state.needs_tile_refetch:
+                        log.info("取得中に新たな操作あり、再取得へ")
+                        continue
+                last_map_img = None  # 再描画トリガー
 
             # ── 定期データ更新 (5分ごと) ──
             if now - last_fetch_time >= DATA_REFRESH_INTERVAL:
