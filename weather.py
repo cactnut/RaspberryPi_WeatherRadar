@@ -63,6 +63,7 @@ del _lo, _hi
 
 # レーダー透過度 (0=完全透明, 255=不透明)
 RADAR_OPACITY = 80
+_OPACITY_LUT = tuple(x * RADAR_OPACITY // 255 for x in range(256))
 
 # 県庁所在地 (name, lat, lon)
 CAPITALS = [
@@ -625,7 +626,7 @@ def compose_map(base: Image.Image, radar: Image.Image,
     # レーダーを半透明にして背景地図が透けて見えるようにする
     if radar.mode == "RGBA":
         r, g, b, a = radar.split()
-        a = a.point(lambda x: x * RADAR_OPACITY // 255)
+        a = a.point(_OPACITY_LUT)
         radar = Image.merge("RGBA", (r, g, b, a))
     if radar_zoom_level and radar_zoom_level != base_zoom:
         result = _fit_radar_to_base(base, radar,
@@ -889,7 +890,10 @@ def image_to_rgb565(image: Image.Image) -> bytes:
 
 def write_to_framebuffer(image: Image.Image, device: str, fb_format: dict):
     """画像をフレームバッファに書き込む。"""
-    img = image.resize((fb_format["width"], fb_format["height"]), Image.BILINEAR)
+    if image.size != (fb_format["width"], fb_format["height"]):
+        img = image.resize((fb_format["width"], fb_format["height"]), Image.BILINEAR)
+    else:
+        img = image
     img = img.convert("RGB")
 
     bpp = fb_format["bpp"]
