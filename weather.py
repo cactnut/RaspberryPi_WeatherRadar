@@ -598,7 +598,7 @@ def _fit_radar_to_base(base: Image.Image, radar: Image.Image,
     # レーダー画像を背景と同じスケールにリサイズ
     rw = int(radar.width * scale)
     rh = int(radar.height * scale)
-    radar_scaled = radar.resize((rw, rh), Image.LANCZOS)
+    radar_scaled = radar.resize((rw, rh), Image.BILINEAR)
 
     # 背景の左上タイル座標を、レーダーズームのピクセル座標で表現
     base_px_in_radar = base_tx * TILE_SIZE / scale - radar_tx * TILE_SIZE
@@ -633,7 +633,7 @@ def compose_map(base: Image.Image, radar: Image.Image,
     else:
         result = Image.alpha_composite(base, radar)
     # アスペクト比維持: 768x512 → 480x320 → 中央クロップ 480x240
-    result = result.resize((DISPLAY_WIDTH, DISPLAY_HEIGHT), Image.LANCZOS)
+    result = result.resize((DISPLAY_WIDTH, DISPLAY_HEIGHT), Image.BILINEAR)
     result = result.crop((0, CROP_Y_OFFSET, DISPLAY_WIDTH, CROP_Y_OFFSET + MAP_HEIGHT))
     # 陸地の輝度範囲はそのまま、それ以外はガンマ補正で明るくする
     result = result.convert("RGB").point(_GAMMA_LUT)
@@ -888,7 +888,7 @@ def image_to_rgb565(image: Image.Image) -> bytes:
 
 def write_to_framebuffer(image: Image.Image, device: str, fb_format: dict):
     """画像をフレームバッファに書き込む。"""
-    img = image.resize((fb_format["width"], fb_format["height"]), Image.LANCZOS)
+    img = image.resize((fb_format["width"], fb_format["height"]), Image.BILINEAR)
     img = img.convert("RGB")
 
     bpp = fb_format["bpp"]
