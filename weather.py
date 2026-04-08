@@ -167,6 +167,7 @@ class AppMode(Enum):
 @dataclass
 class AppState:
     lock: threading.Lock = field(default_factory=threading.Lock)
+    wake: threading.Event = field(default_factory=threading.Event)
     mode: AppMode = AppMode.IDLE
     zoom: int = DEFAULT_ZOOM
     tile_x_start: int = DEFAULT_TILE_X
@@ -1039,6 +1040,7 @@ def touch_thread(state: AppState):
                     state.drag_dx = sx_c - sx_s
                     state.drag_dy = sy_c - sy_s
                     state.is_dragging = True
+                state.wake.set()
         elif event.type == ecodes.EV_KEY and event.code == ecodes.BTN_TOUCH:
             if event.value == 1:
                 touch_down = True
@@ -1067,6 +1069,7 @@ def touch_thread(state: AppState):
                     handle_tap(state, sx_e, sy_e)
                 elif dist >= 15:
                     handle_swipe(state, sx_e - sx_s, sy_e - sy_s)
+                state.wake.set()
 
 
 # ── メイン ────────────────────────────────────────────
@@ -1138,6 +1141,9 @@ def main():
 
     while True:
         try:
+            remaining = max(0, DATA_REFRESH_INTERVAL - (time.time() - last_fetch_time))
+            state.wake.wait(timeout=remaining)
+            state.wake.clear()
             now = time.time()
 
             # ── リロード ──
@@ -1255,7 +1261,8 @@ def main():
                 full = cached_bottom.copy()
                 full.paste(shifted_map, (0, 0))
                 display_frame(full, fb_format, "drag")
-                time.sleep(1 / 30)
+                state.wake.wait(timeout=1 / 30)
+                state.wake.clear()
                 continue
 
             # ── IDLE: 現在のレーダー1枚表示 ──
@@ -1274,7 +1281,6 @@ def main():
                     last_map_img = map_img
                     full = build_full_frame(map_img, state, forecast)
                     display_frame(full, fb_format, "current")
-                time.sleep(0.5)
 
             # ── PLAYING: アニメーション ──
             elif state.mode == AppMode.PLAYING:
