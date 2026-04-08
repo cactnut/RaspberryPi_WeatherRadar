@@ -53,6 +53,13 @@ DEFAULT_TILE_Y = int((1.0 - math.log(math.tan(math.radians(DEFAULT_LAT))
 # 背景地図ガンマ補正 (陸地の輝度範囲はそのまま、それ以外を明るくする)
 BASE_MAP_GAMMA = 0.4
 BASE_MAP_LAND_RANGE = (0, 14)  # この輝度範囲を陸地とみなし変更しない
+_lo, _hi = BASE_MAP_LAND_RANGE
+_GAMMA_LUT = tuple(
+    i if _lo <= i <= _hi
+    else int(255 * (i / 255) ** BASE_MAP_GAMMA)
+    for i in range(256)
+) * 3
+del _lo, _hi
 
 # レーダー透過度 (0=完全透明, 255=不透明)
 RADAR_OPACITY = 80
@@ -629,12 +636,7 @@ def compose_map(base: Image.Image, radar: Image.Image,
     result = result.resize((DISPLAY_WIDTH, DISPLAY_HEIGHT), Image.LANCZOS)
     result = result.crop((0, CROP_Y_OFFSET, DISPLAY_WIDTH, CROP_Y_OFFSET + MAP_HEIGHT))
     # 陸地の輝度範囲はそのまま、それ以外はガンマ補正で明るくする
-    lo, hi = BASE_MAP_LAND_RANGE
-    g = BASE_MAP_GAMMA
-    lut = [i if lo <= i <= hi
-           else int(255 * (i / 255) ** g)
-           for i in range(256)]
-    result = result.convert("RGB").point(lut * 3)
+    result = result.convert("RGB").point(_GAMMA_LUT)
 
     draw = ImageDraw.Draw(result)
 
