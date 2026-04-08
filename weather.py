@@ -1145,9 +1145,6 @@ def main():
 
     while True:
         try:
-            remaining = max(0, DATA_REFRESH_INTERVAL - (time.time() - last_fetch_time))
-            state.wake.wait(timeout=remaining)
-            state.wake.clear()
             now = time.time()
 
             # ── リロード ──
@@ -1265,8 +1262,7 @@ def main():
                 full = cached_bottom.copy()
                 full.paste(shifted_map, (0, 0))
                 display_frame(full, fb_format, "drag")
-                state.wake.wait(timeout=1 / 30)
-                state.wake.clear()
+                time.sleep(1 / 30)
                 continue
 
             # ── IDLE: 現在のレーダー1枚表示 ──
@@ -1285,6 +1281,10 @@ def main():
                     last_map_img = map_img
                     full = build_full_frame(map_img, state, forecast)
                     display_frame(full, fb_format, "current")
+                # 次のイベントか定期更新まで待機
+                remaining = max(0, DATA_REFRESH_INTERVAL - (time.time() - last_fetch_time))
+                state.wake.wait(timeout=remaining)
+                state.wake.clear()
 
             # ── PLAYING: アニメーション ──
             elif state.mode == AppMode.PLAYING:
